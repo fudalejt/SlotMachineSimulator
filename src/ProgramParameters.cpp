@@ -9,7 +9,8 @@ ProgramParameters::ProgramParameters(int argc, char* argv[]) :
 	startCredit(nullptr),
 	creditOutFile(nullptr),
 	symbols(nullptr),
-	extendedOutput(nullptr)
+	extendedOutput(nullptr),
+	bet(nullptr)
 {
 	for (int i = 0; i < argc; ++i)
 	{
@@ -74,6 +75,23 @@ ProgramParameters::ProgramParameters(int argc, char* argv[]) :
 					throw std::invalid_argument("-extendedOutput argument error: there isn't given a value for the argument");
 				}
 			}
+			else if(argInput == "-bet")
+			{
+				try
+				{
+					std::string argValue = argv[i + 1];
+					this->bet = new float(stoi(argValue));
+					i++;
+				}
+				catch (std::out_of_range)
+				{
+					throw std::invalid_argument("-bet argument error: there isn't given a value for the argument");
+				}
+				catch (std::invalid_argument)
+				{
+					throw std::invalid_argument("-bet argument error: the value is not a proper integer value");
+				}
+			}
 			else if (argInput == "-symbols")
 			{
 				try
@@ -81,9 +99,9 @@ ProgramParameters::ProgramParameters(int argc, char* argv[]) :
 					std::string argValue = argv[i + 1];
 					std::vector<std::string> splittedArgValue = splitString(argValue, ',');
 					this->symbols = new int[splittedArgValue.size()];
-					for (int i = 0; i < splittedArgValue.size(); ++i)
+					for (int j = 0; j < splittedArgValue.size(); ++j)
 					{
-						this->symbols[i] = stoi(splittedArgValue[i]);
+						this->symbols[j] = stoi(splittedArgValue[j]);
 					}
 					i++;
 				}
@@ -110,4 +128,6 @@ ProgramParameters::~ProgramParameters()
 		delete symbols;
 	if (extendedOutput)
 		delete extendedOutput;
+	if(bet)
+		delete bet;
 }

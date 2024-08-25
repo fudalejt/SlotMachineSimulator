@@ -13,8 +13,8 @@ class Payline
 {
 public:
 	Payline();
-	void addPoint(int x, int y);
-	int getRow(int x);
+	void addPoint(int reel, int row);
+	int getRow(int reel);
 
 protected:
 	std::array<int, reelsCount> line;
@@ -23,6 +23,7 @@ protected:
 template<int reelsCount, int rowsCount>
 inline Payline<reelsCount, rowsCount>::Payline()
 {
+	
 }
 
 template<int reelsCount, int rowsCount>

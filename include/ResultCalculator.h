@@ -2,35 +2,41 @@
 #define RESULT_CALCULATOR_H
 
 #include <vector>
+#include <memory>
 
 #include "RewardTable.h"
 #include "Payline.h"
 #include "Report.h"
+#include "LineFlowGraph.h"
 
-
-template<int reelsCount, int rowsCount>
+template<int REELS, int ROWS>
 class ResultCalculator
 {
 	static const float MAX_REWARD;
 
 public:
 	ResultCalculator();
-	float calculateMachineStateValue(const std::array<std::array<Symbol, rowsCount>, reelsCount>& machineState, const float bet);
+	float calculateMachineStateValue(const std::array<std::array<Symbol, ROWS>, REELS>& machineState, const float bet);
 	const ReportSummary& getReport(float bet);
 
 private:
 	void addPayline(std::vector<Point> points);
+	float calcResultForNode(Node<REELS, ROWS> *node, Symbol symbol, float bet, const std::array<std::array<Symbol, ROWS>, REELS>& machineState, int occurences=0);
+	float calcResultChange(Node<REELS, ROWS> *node, Symbol symbol, float bet, int occurences); //calculate result change for given node in the line flow graph
 	
-	std::vector<Payline<reelsCount, rowsCount>> paylines;
+	std::vector<Payline<REELS, ROWS>> paylines; // aggregated paylines path definition
+	std::unique_ptr<LineFlowGraph<REELS, ROWS>> lineFlowGraph;
 	Report report;
 };
 
-template<int reelsCount, int rowsCount>
-const float ResultCalculator<reelsCount, rowsCount>::MAX_REWARD = 305.f; // from the Hot Spot 777 Crown rules
 
-template<int reelsCount, int rowsCount>
-inline ResultCalculator<reelsCount, rowsCount>::ResultCalculator()
+template<int REELS, int ROWS>
+const float ResultCalculator<REELS, ROWS>::MAX_REWARD = 305.f; // from the Hot Spot 777 Crown rules
+
+template<int REELS, int ROWS>
+inline ResultCalculator<REELS, ROWS>::ResultCalculator()
 {
+	paylines.reserve(20); // there are 20 paylines in the game
 	addPayline(std::vector<Point>({ Point(0,1), Point(1,1), Point(2,1), Point(3,1), Point(4,1) }));	//line 1
 	addPayline(std::vector<Point>({ Point(0,0), Point(1,0), Point(2,0), Point(3,0), Point(4,0) }));	//line 2
 	addPayline(std::vector<Point>({ Point(0,2), Point(1,2), Point(2,2), Point(3,2), Point(4,2) }));	//line 3
@@ -51,46 +57,29 @@ inline ResultCalculator<reelsCount, rowsCount>::ResultCalculator()
 	addPayline(std::vector<Point>({ Point(0,2), Point(1,2), Point(2,1), Point(3,1), Point(4,1) })); //line 18
 	addPayline(std::vector<Point>({ Point(0,2), Point(1,2), Point(2,2), Point(3,1), Point(4,0) })); //line 19
 	addPayline(std::vector<Point>({ Point(0,0), Point(1,0), Point(2,0), Point(3,1), Point(4,2) })); //line 20
+
+	lineFlowGraph.reset(new LineFlowGraph<REELS, ROWS>(paylines));
 }
 
-template<int reelsCount, int rowsCount>
-inline float ResultCalculator<reelsCount, rowsCount>::calculateMachineStateValue(const std::array<std::array<Symbol, rowsCount>, reelsCount>& machineState, const float bet)
+template<int REELS, int ROWS>
+inline float ResultCalculator<REELS, ROWS>::calculateMachineStateValue(const std::array<std::array<Symbol, ROWS>, REELS>& machineState, const float bet)
 {
 	float finalResult = 0.f;
 	float maxReward = MAX_REWARD * bet;
 
-	//reward from Paylines		 
-	int paylineIdx = 0;
-	for (auto paylineIter = paylines.begin(); paylineIter < paylines.end(); ++paylineIter)
+	//reward from Paylines
+	for(auto& child : lineFlowGraph->getRoot()->getChildren())
 	{
-		++paylineIdx;
-		Symbol symbol = machineState[0][paylineIter->getRow(0)];
-		if (symbol != Symbol::Scatter)
-		{
-			int occurences = 1;
-			for (int reelIdx = 1; reelIdx < reelsCount; ++reelIdx)
-			{
-				if (machineState[reelIdx][paylineIter->getRow(reelIdx)] == symbol)
-				{
-					occurences += 1;
-				}
-				else
-					break;
-			}
-			float delta = RewardTable::getReward(symbol, occurences) * bet;
-			if (delta > 0)
-			{
-				finalResult += delta;
-			}
-			// include data about the symbol to the report summary
-			report.addSymbolStats(symbol, occurences, delta);
-		}		
+		Symbol symbol = machineState[0][child->row];
+		if(symbol != Symbol::Scatter)
+			finalResult += calcResultForNode(child.get(), symbol, bet, machineState);
 	}
-	//reward from Scatters
+	
+	// //reward from Scatters
 	int scattersCounter = 0;
-	for (int reelIdx = 0; reelIdx < reelsCount; ++reelIdx)
+	for (int reelIdx = 0; reelIdx < REELS; ++reelIdx)
 	{
-		for (int rowIdx = 0; rowIdx < rowsCount; ++rowIdx)
+		for (int rowIdx = 0; rowIdx < ROWS; ++rowIdx)
 		{
 			if (machineState[reelIdx][rowIdx] == Symbol::Scatter)
 			{
@@ -98,16 +87,18 @@ inline float ResultCalculator<reelsCount, rowsCount>::calculateMachineStateValue
 				break;
 			}
 		}
-	}	
+	}
+	
 	float delta = RewardTable::getScatterReward(scattersCounter) * bet;
 	if (delta > 0)
 	{
 		finalResult += delta;
-		//std::cout << "Scatters number : " << scattersCounter << ". Scatters value : " << delta << std::endl;
 	}
 	if(scattersCounter > 0)
+	{
 		// include data about the symbol to the report summary
 		report.addSymbolStats(Symbol::Scatter, scattersCounter, delta);
+	}	
 
 	// adjust to the max available reward value
 	if (finalResult > maxReward)
@@ -119,21 +110,58 @@ inline float ResultCalculator<reelsCount, rowsCount>::calculateMachineStateValue
 	return finalResult;
 }
 
-template<int reelsCount, int rowsCount>
-inline const ReportSummary& ResultCalculator<reelsCount, rowsCount>::getReport(float bet)
+template<int REELS, int ROWS>
+inline const ReportSummary& ResultCalculator<REELS, ROWS>::getReport(float bet)
 {
 	return report.getReport(bet);
 }
 
-template<int reelsCount, int rowsCount>
-inline void ResultCalculator<reelsCount, rowsCount>::addPayline(std::vector<Point> points)
+template<int REELS, int ROWS>
+inline void ResultCalculator<REELS, ROWS>::addPayline(std::vector<Point> points)
 {
-	Payline<reelsCount, rowsCount> payline;
+	Payline<REELS, ROWS> payline;
 	for (auto iter = points.begin(); iter < points.end(); ++iter)
 	{
 		payline.addPoint(iter->x, iter->y);
 	}
 	paylines.push_back(payline);
+}
+
+
+template<int REELS, int ROWS>
+inline float ResultCalculator<REELS, ROWS>::calcResultForNode(Node<REELS, ROWS> *node, Symbol symbol, float bet, const std::array<std::array<Symbol, ROWS>, REELS>& machineState, int occurences)
+{
+	float result = 0.f;
+	if(symbol == machineState[node->reel][node->row])
+	{
+		for(auto childNode = node->getChildren().begin(); childNode != node->getChildren().end(); ++childNode)
+		{
+			result += this->calcResultForNode((*childNode).get(), symbol, bet, machineState, occurences + 1);
+		}
+		if(result == 0)
+		{
+			result += calcResultChange(node, symbol, bet, occurences);
+		}
+	}
+	else
+	{
+		result += calcResultChange(node, symbol, bet, occurences);
+	}	
+
+	return result;
+}
+
+template<int REELS, int ROWS>
+inline float ResultCalculator<REELS, ROWS>::calcResultChange(Node<REELS, ROWS> *node, Symbol symbol, float bet, int occurences)
+{
+	float delta = RewardTable::getReward(symbol, occurences) * bet * node->getLinesCount();
+	if(delta > 0)
+	{				
+		report.addSymbolStats(symbol, occurences, delta);
+		return delta;
+	}
+	else
+		return 0;
 }
 
 #endif

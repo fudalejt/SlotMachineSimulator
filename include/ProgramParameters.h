@@ -18,6 +18,7 @@ public:
 	std::string* creditOutFile;
 	int* symbols;
 	bool* extendedOutput; //print additional debug information about the machine simulation state
+	float* bet;
 };				  
 
 #endif

@@ -3,6 +3,8 @@
 #include <array>
 #include <fstream>
 #include <iomanip>
+#include <memory>
+#include <chrono>
 
 #include "include/SlotMachine.h"
 #include "include/Symbol.h"
@@ -31,7 +33,7 @@ namespace SymbolHelper
 }
 
 template<int REELS, int ROWS>
-void printMachineState(std::array<std::array<Symbol, ROWS>, REELS>& state)
+void printMachineState(const std::array<std::array<Symbol, ROWS>, REELS>& state)
 {
 	for (int y = 0; y < ROWS; ++y)
 	{
@@ -85,6 +87,8 @@ void prepareReportCategoryStatistics(const ReportSummary& report)
 
 int main(int argc, char *argv[])
 {	
+	auto startTime = std::chrono::high_resolution_clock::now();
+
 	try
 	{
 		srand(time(0));
@@ -107,32 +111,31 @@ int main(int argc, char *argv[])
 
 		const int ROWS = 3;
 		const int REELS = 5;
-		const int BET = 1;
+		const int BET = (parameters.bet != nullptr) ? *parameters.bet : 1;
 
 		const std::vector<std::vector<Symbol>> reelsConfig = configureReels();
 
 		if (parameters.symbols)
 		{
 			auto& SYMBOLS = parameters.symbols;
-
-
 			SlotMachine<REELS, ROWS> slotMachine(reelsConfig);
 			slotMachine.setMachineState(SYMBOLS);
-			auto state = slotMachine.getMachineState();
 			float value = slotMachine.calculateResult(BET);
-
-			if(parameters.extendedOutput)
-			{
-				printMachineState<REELS, ROWS>(state);
-				std::cout << "Reward : " << value << std::endl << std::endl;
-			}				
+			auto state = slotMachine.getMachineState();
+			printMachineState<REELS, ROWS>(state);
+			std::cout << "Reward : " << value << std::endl << std::endl;
+			if(*parameters.extendedOutput)
+				std::cout <<"Bet rate : " << BET << std::endl;
 		}
 		else
 		{
 			int games_count = (parameters.gamesCount != nullptr) ? *parameters.gamesCount : 1;
 			int startCredits = (parameters.startCredit != nullptr) ? *parameters.startCredit : 0;
 			int credits = startCredits;
-			std::ofstream* creditOutFile = (parameters.creditOutFile != nullptr) ? new std::ofstream(*parameters.creditOutFile) : nullptr;
+
+			std::ofstream creditOutFile;
+			if(parameters.creditOutFile != nullptr)
+				creditOutFile = std::ofstream(*parameters.creditOutFile);
 
 			SlotMachine<REELS, ROWS> slotMachine(reelsConfig);
 
@@ -151,16 +154,17 @@ int main(int argc, char *argv[])
 					std::cout << "Player credits : " << std::fixed << std::setprecision(1) << resultsSum << std::endl;
 				}		
 				if(creditOutFile)
-					*creditOutFile << std::fixed << std::setprecision(1) << resultsSum << std::endl;
+					creditOutFile << std::fixed << std::setprecision(1) << resultsSum << std::endl;
 			}
 
 			// generate a report
-			auto report = slotMachine.getReport(BET);
+			const ReportSummary& report = slotMachine.getReport(BET);
 
 			// show a summary
 			std::cout << std::fixed << std::setprecision(2);
 			std::cout << " *** General report *** " << std::endl;
 			std::cout << "Start credits : " << startCredits << std::endl;
+			std::cout << "Bet rate : " << BET << std::endl;
 			std::cout << "Played games : " << games_count << std::endl << std::endl;
 			std::cout << "Wins : " << report.wins << std::endl;
 			std::cout << "Looses : " << report.lost << std::endl;
@@ -184,7 +188,7 @@ int main(int argc, char *argv[])
 				std::cout << " * Symbol: " << symbolName << std::endl;
 				for (auto occurIter = symbolIter->second.begin(); occurIter != symbolIter->second.end(); ++occurIter)
 				{
-					SymbolStats& stats = occurIter->second;
+					const SymbolStats& stats = occurIter->second;
 					std::cout << "Symbol: " << symbolName << " x " << occurIter->first << ", "
 						<< "Multiplier = x" << stats.multiplier << ", "
 						<< "Hits = " << stats.hits << ", "
@@ -198,21 +202,22 @@ int main(int argc, char *argv[])
 			}
 			std::cout << std::endl;
 
-			//clean up the memory
-			if (creditOutFile)
+			//close the output file
+			if (creditOutFile.is_open())
 			{
-				creditOutFile->close();
-				delete creditOutFile;
+				creditOutFile.close();
 			}			
 		}
 	}
-	catch (std::exception e)
+	catch (std::exception& e)
 	{
 		std::cout << "The program execution fatal error:" << std::endl;
 		std::cout << e.what() << std::endl;
 	}
 
-	std::cout << "SlotMachineSimulator has finished its work." << std::endl;
+	auto endTime = std::chrono::high_resolution_clock::now();
+	std::cout << "SlotMachineSimulator has finished its work. Work time : " 
+		<< std::chrono::duration_cast<std::chrono::milliseconds>(endTime - startTime).count() << " ms." << std::endl;
 	
 	return 0;
 }
